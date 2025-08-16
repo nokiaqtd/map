@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BTS MAP</title>
+  <script>
+    // SVG-only favicon: white "N" on hsl(219 100% 50%) background
+    (function(){
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="N">
+        <rect width="100%" height="100%" fill="hsl(219 100% 50%)"/>
+        <!-- left vertical bar -->
+        <rect x="8" y="8" width="10" height="48" fill="#fff"/>
+        <!-- diagonal stroke (slanted middle) -->
+        <polygon points="18,8 30,8 46,56 34,56" fill="#fff"/>
+        <!-- right vertical bar -->
+        <rect x="46" y="8" width="10" height="48" fill="#fff"/>
+      </svg>`;
+
+      const url = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+      document.querySelectorAll('link[rel~="icon"]').forEach(n => n.remove());
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/svg+xml';
+      link.href = url;
+      document.head.appendChild(link);
+    })();
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    iframe { border: none; width: 100%; height: 100%; touch-action: auto; -ms-touch-action: auto; pointer-events: auto; -webkit-overflow-scrolling: touch; }
+  </style>
+</head>
+<body>
+  <!-- initial src is the base. script below will append the page query string if present -->
+  <iframe id="ndbFrame"
+    src="https://script.google.com/macros/s/AKfycbw-oSbJnzDzgQJ8bybXo3vjIjL4YD8eivUJAjbEcHO_d2TnxDi9_iaHYcuCmL34CF3iKg/exec"
+    allow="geolocation; microphone; camera; accelerometer; gyroscope; autoplay">
+  </iframe>
+
+  <script>
+    (function(){
+      const base = 'https://script.google.com/macros/s/AKfycbw-oSbJnzDzgQJ8bybXo3vjIjL4YD8eivUJAjbEcHO_d2TnxDi9_iaHYcuCmL34CF3iKg/exec';
+      const pageQS = location.search || ''; // includes leading '?' when present
+
+      // OPTION 1 (default): forward entire query string from parent to iframe
+      let iframeSrc = base + (pageQS ? (base.includes('?') ? '&' + pageQS.slice(1) : pageQS) : '');
+
+      // If you prefer to forward only the "q" parameter, replace the above with:
+      // const params = new URLSearchParams(location.search);
+      // const q = params.get('q');
+      // let iframeSrc = q ? base + '?q=' + encodeURIComponent(q) : base;
+
+      const frame = document.getElementById('ndbFrame');
+      frame.src = iframeSrc;
+
+      // Keep document title in sync (redundant with <title> but explicit)
+      document.title = 'Quick NDB';
+    })();
+  </script>
+</body>
+</html>

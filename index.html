@@ -62,6 +62,7 @@
       // wait for iframe to load then send params (or send immediately if you prefer)
       iframe.addEventListener('load', () => {
         // Replace '*' with exact origin for security if known: 'https://your-iframe-origin.com'
+        console.log('posting message');
         iframe.contentWindow.postMessage(payload, '*');
       });      
       

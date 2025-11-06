@@ -40,33 +40,20 @@
   </iframe>
 
   <script>
-    (function(){      
+    (function(){
       const base = 'https://script.google.com/macros/s/AKfycbwaAEfeMmdGY1xhcGenOH7GTjOe8imHOvA4X9FC-TUW_tUbIb4OxRqZizkzz6C56TWpag/exec';
-      // const pageQS = location.search || ''; // includes leading '?' when present      
-      // let iframeSrc = base + (pageQS ? (base.includes('?') ? '&' + pageQS.slice(1) : pageQS) : '');
-      // const frame = document.getElementById('ndbFrame');
-      // frame.src = iframeSrc;
-      
-      
-      // ADD in parent
-      const iframe = document.getElementById('ndbFrame');      
-      iframe.src=base;
+      const iframe = document.getElementById('ndbFrame');
       const params = new URLSearchParams(window.location.search);
-      const payload = {
-        type: 'url-params',
-        q: params.get('q') || params.get('search') || null,
-        center: params.get('center') || null,
-        zoom: params.get('zoom') || null
-      };
-      
-      // wait for iframe to load then send params (or send immediately if you prefer)
-      iframe.addEventListener('load', () => {
-        // Replace '*' with exact origin for security if known: 'https://your-iframe-origin.com'
-        console.log('posting message',payload);
-        iframe.contentWindow.postMessage(payload, '*');
-      });      
-      
-      
+    
+      // keep only our 3 params (optional - sanitize)
+      const out = new URLSearchParams();
+      ['q','search','center','zoom'].forEach(k => {
+        const v = params.get(k);
+        if (v !== null) out.set(k, v);
+      });
+    
+      const qs = out.toString();
+      iframe.src = qs ? (base + (base.includes('?') ? '&' + qs : '?' + qs)) : base;
     })();
   </script>
 </body>

@@ -41,21 +41,28 @@
   <script>
     (function(){      
       const base = 'https://script.google.com/macros/s/AKfycbwVLPiX1sQhlTXdF9QpnVYgZoj0wqtTK-hg_dMya9A8g-hvwtcKvzW-_mgBwdopy6RNBg/exec';
-      const pageQS = location.search || ''; // includes leading '?' when present
+      // const pageQS = location.search || ''; // includes leading '?' when present      
+      // let iframeSrc = base + (pageQS ? (base.includes('?') ? '&' + pageQS.slice(1) : pageQS) : '');
+      // const frame = document.getElementById('ndbFrame');
+      // frame.src = iframeSrc;
 
-      // OPTION 1 (default): forward entire query string from parent to iframe
-      let iframeSrc = base + (pageQS ? (base.includes('?') ? '&' + pageQS.slice(1) : pageQS) : '');
-
-      // If you prefer to forward only the "q" parameter, replace the above with:
-      // const params = new URLSearchParams(location.search);
-      // const q = params.get('q');
-      // let iframeSrc = q ? base + '?q=' + encodeURIComponent(q) : base;
-
-      const frame = document.getElementById('ndbFrame');
-      frame.src = iframeSrc;
-
-      // Keep document title in sync (redundant with <title> but explicit)
-      //document.title = 'Quick NDB';
+      // ADD in parent
+      const iframe = document.getElementById('ndbFrame');
+      const params = new URLSearchParams(window.location.search);
+      const payload = {
+        type: 'url-params',
+        q: params.get('q') || params.get('search') || null,
+        center: params.get('center') || null,
+        zoom: params.get('zoom') || null
+      };
+      
+      // wait for iframe to load then send params (or send immediately if you prefer)
+      iframe.addEventListener('load', () => {
+        // Replace '*' with exact origin for security if known: 'https://your-iframe-origin.com'
+        iframe.contentWindow.postMessage(payload, '*');
+      });      
+      
+      
     })();
   </script>
 </body>

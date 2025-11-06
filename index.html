@@ -47,7 +47,7 @@
     
       // keep only our 3 params (optional - sanitize)
       const out = new URLSearchParams();
-      ['q','search','center','zoom'].forEach(k => {
+      ['q','search','center','zoom','goto'].forEach(k => {
         const v = params.get(k);
         if (v !== null) out.set(k, v);
       });

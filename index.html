@@ -45,9 +45,10 @@
       // let iframeSrc = base + (pageQS ? (base.includes('?') ? '&' + pageQS.slice(1) : pageQS) : '');
       // const frame = document.getElementById('ndbFrame');
       // frame.src = iframeSrc;
-
+      iframe.src=base;
+      
       // ADD in parent
-      const iframe = document.getElementById('ndbFrame');
+      const iframe = document.getElementById('ndbFrame');      
       const params = new URLSearchParams(window.location.search);
       const payload = {
         type: 'url-params',

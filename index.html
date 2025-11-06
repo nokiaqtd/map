@@ -53,7 +53,10 @@
       });
     
       const qs = out.toString();
-      iframe.src = qs ? (base + (base.includes('?') ? '&' + qs : '?' + qs)) : base;
+      // iframe.src = qs ? (base + (base.includes('?') ? '&' + qs : '?' + qs)) : base;
+      const newurl = qs ? (base + (base.includes('?') ? '&' + qs : '?' + qs)) : base;
+      console.log(newurl);
+      iframe.src = newurl;
     })();
   </script>
 </body>

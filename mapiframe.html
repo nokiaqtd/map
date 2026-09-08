@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <!-- Local URL params handling moved to app.js -->
+
+  <title>BTS Azimuth Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+ <!-- Dexie for IndexedDB -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3/dist/dexie.min.js"></script>
+  <!-- Turf & RBush for spatial -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/rbush@3/rbush.min.js"></script>
+  <script type="module">
+  import geojsonRbush from 'https://cdn.skypack.dev/geojson-rbush';
+    window.geojsonRbush = geojsonRbush;
+  </script>
+
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+
+    /* ---------- NEW control panel styles (replace existing .control-panel and #toggle-panel) ---------- */
+    :root{
+      --panel-bg: rgba(255,255,255,0.95);
+      --panel-accent: #0b76ff;
+      --panel-radius: 12px;
+      --gap: 8px;
+      --touch: 44px;
+      --shadow: 0 6px 24px rgba(0,0,0,0.12);
+      --glass: rgba(255,255,255,0.6);
+    }
+
+    /* base */
+    .control-panel{
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 320px;
+      max-width: calc(100% - 24px);
+      background: var(--panel-bg);
+      border-radius: var(--panel-radius);
+      box-shadow: var(--shadow);
+      z-index: 1100;
+      font-family: system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      transition: transform .28s ease, opacity .2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+      padding: 8px;
+      box-sizing: border-box;      
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+    }
+
+    /* collapsed state */
+    .control-panel.collapsed{
+      transform: translateY(-12px) scale(.98);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* header */
+    .control-panel .panel-head{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:4px 6px;
+    }
+    .control-panel .panel-title{
+      font-weight:600;
+      font-size:14px;
+      flex:1;
+    }
+    .control-panel .panel-actions button{
+      height:28px;
+      min-width:28px;
+      border-radius:6px;
+      border: none;
+      background: transparent;
+      cursor:pointer;
+      color: #333;
+      padding: 4px;
+    }
+
+    /* compact form layout */
+    .control-panel .panel-body{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      padding:6px;
+    }
+    .control-panel label{ font-size:13px; display:block; width:100%; }
+    .control-panel .row{ display:flex; gap:8px; align-items:center; width:100%; }
+    .control-panel select, .control-panel input[type="text"], .control-panel input[type="range"]{
+      width:100%;
+      padding:6px 8px;
+      border-radius:6px;
+      border:1px solid #e6e6e6;
+      font-size:13px;
+      box-sizing:border-box;
+    }
+
+    /* footer */
+    .control-panel .panel-foot{
+      display:flex;
+      gap:8px;
+      padding:6px;
+      align-items:center;
+      justify-content:space-between;
+    }
+
+    /* floating FAB toggle (show when panel hidden or on mobile) */
+    #toggle-panel{
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      z-index: 1200;
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel-accent);
+      color: #fff;
+      border: none;
+      box-shadow: 0 6px 18px rgba(11,118,255,0.24);
+      cursor: pointer;
+      font-weight:700;
+      font-size:20px;
+      padding:0;
+    }
+
+    /* responsive: mobile bottom-sheet */
+    /* @media (max-width:640px){
+      .control-panel{
+        left: 12px;
+        right: 12px;
+        width: calc(100% - 24px);
+        bottom: 12px;
+        top: auto;
+        flex-direction: column;
+        padding: 10px;
+      }
+      #toggle-panel{ right: 12px; top: auto; bottom: 80px; }
+    } */
+
+
+    .bts-label { white-space: nowrap; font-weight: bold; font-size: 13px; color: white;
+      text-shadow: -1px -1px 0 black,1px -1px 0 black,-1px 1px 0 black,1px 1px 0 black;
+      background-color: transparent; padding: 2px 4px; pointer-events: auto; }
+    .context-menu, .popup-list {
+      position: absolute; background: white; padding: 6px;
+      border: 1px solid #ccc; border-radius: 4px;
+      z-index: 1100; display: none;
+    }
+    .context-menu div, .popup-list div { padding: 4px; cursor: pointer; }
+    .context-menu div:hover, .popup-list div:hover { background: #eee; }
+    #bottomBar {
+      position: absolute; bottom: 10px; left: 10px;
+      display: flex; align-items: center; z-index: 1200;
+    }
+    #coordDisplay {
+      background: rgba(0,0,0,0.7); color: #fff;
+      padding: 4px 8px; border-radius: 4px;
+      font-family: sans-serif;
+    }
+
+    .info-popup {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: white; padding: 20px; border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1200; display: none; width: 300px;
+    }
+    .info-popup .close-btn { position: absolute; top: 5px; right: 8px; cursor: pointer; font-weight: bold; }
+
+
+    #searchResults ul {
+      margin: 0; padding: 4px; list-style: none;
+    }
+    #searchResults li { padding: 2px 4px; cursor: pointer; }
+    #searchResults li:hover { background: #eef; }
+    #searchResults .pagination { text-align: center; padding: 4px; }
+    #searchResults .pagination span {
+      margin: 0 4px;
+      cursor: pointer;
+      color: blue;            /* hyperlink color */
+      text-decoration: underline;
+    }
+    #searchResults .pagination .active { font-weight: bold; text-decoration: underline; }
+
+    #searchResults .result-row.hovered,
+    #searchResults .result-row.pinned {
+      background: color-mix(in srgb, var(--accent) 16%, white 84%);
+      border: 1px solid rgba(11,118,255,0.18);
+      box-shadow: 0 10px 26px rgba(11,118,255,0.12);
+    }
+
+
+    #perfBadge {
+      position: absolute;
+      top: 8px; right: 8px;
+      font: 12px sans-serif;
+      padding: 2px 4px;
+      background: rgba(0,0,0,0.5);
+      color: white;
+      z-index: 1300;
+      /* black outline via multiple shadows */
+      text-shadow:
+      -1px -1px 0 #000, 1px -1px 0 #000,
+      -1px 1px 0 #000, 1px 1px 0 #000;
+      border-radius: 4px;
+    }  
+    
+    
+      
+    .leaflet-container {
+    background-color: hsl(219,100%,50%);
+    background-size:    200px 100px,200px 100px;
+    background-position:0 0,100px 50px;
+    background-repeat:  repeat,repeat;
+    /* two identical data-URIs with the full path data */
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100' viewBox='0 0 200 100'><rect width='200' height='100' fill='transparent'/><svg x='55' y='30' width='90' height='40' viewBox='0 0 55 13' fill='none' xmlns='http://www.w3.org/2000/svg'><g clip-path='url(%23clip0)'><path d='M38.0192 0.395349V12.6046H39.842V0.395349H38.0192ZM18.5454 0.186787C14.9944 0.186771 12.2392 2.78308 12.2392 6.5C12.2392 10.3843 14.9944 12.8133 18.5454 12.8132C22.0964 12.8132 24.8572 10.3843 24.8516 6.5C24.8464 2.97836 22.0964 0.186803 18.5454 0.186787ZM23.0321 6.5C23.0321 9.25164 21.0233 11.0752 18.5454 11.0752C16.0674 11.0752 14.0587 9.25164 14.0587 6.5C14.0587 3.79827 16.0674 1.92486 18.5454 1.92486C21.0233 1.92486 23.0321 3.79827 23.0321 6.5ZM0 1.10175e-06V12.6046H1.86027V4.27476L11.5273 13V10.3867L0 1.10175e-06ZM26.2225 6.5L32.9874 12.6047H35.6999L28.9248 6.5L35.6999 0.395343H32.9874L26.2225 6.5ZM55 12.6046H52.9948L51.5285 9.90093H44.8871L43.4206 12.6046H41.4153L43.8437 8.09822H50.5748L47.2185 1.83556L48.2078 0L55 12.6046Z' fill='white'/></g><defs><clipPath id='clip0'><rect width='55' height='13' fill='white'/></clipPath></defs></svg></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100' viewBox='0 0 200 100'><rect width='200' height='100' fill='transparent'/><svg x='55' y='30' width='90' height='40' viewBox='0 0 55 13' fill='none' xmlns='http://www.w3.org/2000/svg'><g clip-path='url(%23clip0)'><path d='M38.0192 0.395349V12.6046H39.842V0.395349H38.0192ZM18.5454 0.186787C14.9944 0.186771 12.2392 2.78308 12.2392 6.5C12.2392 10.3843 14.9944 12.8133 18.5454 12.8132C22.0964 12.8132 24.8572 10.3843 24.8516 6.5C24.8464 2.97836 22.0964 0.186803 18.5454 0.186787ZM23.0321 6.5C23.0321 9.25164 21.0233 11.0752 18.5454 11.0752C16.0674 11.0752 14.0587 9.25164 14.0587 6.5C14.0587 3.79827 16.0674 1.92486 18.5454 1.92486C21.0233 1.92486 23.0321 3.79827 23.0321 6.5ZM0 1.10175e-06V12.6046H1.86027V4.27476L11.5273 13V10.3867L0 1.10175e-06ZM26.2225 6.5L32.9874 12.6047H35.6999L28.9248 6.5L35.6999 0.395343H32.9874L26.2225 6.5ZM55 12.6046H52.9948L51.5285 9.90093H44.8871L43.4206 12.6046H41.4153L43.8437 8.09822H50.5748L47.2185 1.83556L48.2078 0L55 12.6046Z' fill='white'/></g><defs><clipPath id='clip0'><rect width='55' height='13' fill='white'/></clipPath></defs></svg></svg>");
+    }
+      
+    
+    #loadingLabel {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: sans-serif;
+    font-size: 16px;
+    z-index: 2000;
+    display: none;
+    }
+
+    @keyframes blink {
+    0%,49%   { opacity: 1; }
+    50%,100% { opacity: 0; }
+    }
+    .blinking {
+    display: inline-block;
+    animation: blink 1s step-start infinite; /* MDN: CSS animation https://developer.mozilla.org/docs/Web/CSS/animation */
+    }
+    
+    /* remove the default divIcon white box */
+    .no-bg {
+    background: transparent !important;      /* MDN: background https://developer.mozilla.org/docs/Web/CSS/background */
+    border: none !important;                /* MDN: border https://developer.mozilla.org/docs/Web/CSS/border */
+    }
+
+    :root { --accent: hsl(219,100%,50%); --accent-strong: color-mix(in srgb, var(--accent) 85%, black 15%); }
+
+    /* modern buttons/inputs/combobox */
+    .control-panel button,
+    .control-panel input[type="button"],
+    .control-panel input[type="submit"],
+    .control-panel select,
+    .control-panel input[type="text"],
+    .control-panel input[type="range"] {
+      border: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-shadow: 0 2px 8px rgba(16,24,40,0.06);
+      transition: box-shadow .16s ease, transform .12s ease, border-color .12s ease;
+      outline: none;
+      font-size: 13px;
+    }
+
+    /* subtle lift on hover */
+    .control-panel button:hover,
+    .control-panel select:hover,
+    .control-panel input[type="text"]:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16,24,40,0.12);
+      border-color: rgba(0,0,0,0.06);
+    }
+
+    /* accent focus / hover states */
+    .control-panel button:hover,
+    .control-panel button:focus,
+    .control-panel select:focus,
+    .control-panel input[type="text"]:focus {
+      box-shadow: 0 6px 20px rgba(11,118,255,0.14);
+      border: 1px solid rgba(11,118,255,0.22);
+      caret-color: var(--accent);
+    }
+
+    /* small icon buttons */
+    .control-panel .panel-actions button {
+      background: transparent;
+      color: rgba(20,20,20,0.84);
+    }
+    .control-panel .panel-actions button:hover { color: var(--accent); transform:none; }
+
+    /* select appearance */
+    .control-panel select {
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, rgba(0,0,0,0.6) 50%),
+                        linear-gradient(135deg, rgba(0,0,0,0.6) 50%, transparent 50%);
+      background-position: calc(100% - 18px) calc(1em + 2px), calc(100% - 13px) calc(1em + 2px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      padding-right: 34px;
+    }
+
+    /* button primary accent */
+    .control-panel button#searchBtn,
+    .control-panel button#gotoBtn{
+      background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+      color: #fff;
+      font-weight:600;
+      box-shadow: 0 8px 22px rgba(11,118,255,0.18);
+    }
+
+    /* make Clear All match Clear Points (neutral/secondary) */
+    .control-panel button#clearAllBtn,
+    .control-panel button#clearPointsBtn {
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,250,0.98));
+      color: #111;
+      font-weight: 600;
+      border: 1px solid rgba(0,0,0,0.06);
+      box-shadow: 0 2px 8px rgba(16,24,40,0.06);
+      transition: box-shadow .18s ease, filter .12s ease, background-color .12s ease;
+    }
+
+    .control-panel button#clearAllBtn:hover,
+    .control-panel button#clearPointsBtn:hover {
+      filter: brightness(1.03);
+      box-shadow: 0 8px 24px rgba(16,24,40,0.08), 0 0 0 4px rgba(11,118,255,0.04);
+    }
+
+    .control-panel button#searchBtn:hover,
+    .control-panel button#gotoBtn:hover,
+    .control-panel button#clearAllBtn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(11,118,255,0.22);
+    }
+
+    /* ---------- search results styling & layout ---------- */
+    #searchResults {
+      position: absolute;
+      right: 12px;
+      top: 88px;                 /* fallback; overridden by JS positioning */
+      width: 340px;
+      max-height: 80vh;
+      overflow: hidden;          /* JS will toggle overflow-y when needed */
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(249,249,250,0.98));
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+      padding: 8px;
+      z-index: 1225;
+      transition: opacity .14s ease;
+      display: none;             /* show via existing logic */
+      box-sizing: border-box;
+    }
+
+    #searchResults .result-row{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      padding:10px 12px;
+      border-radius:10px;
+      cursor:pointer;
+      transition: background .12s ease, box-shadow .12s ease;
+      -webkit-user-select: none;
+      user-select: none;
+      border: 1px solid transparent;
+      margin-bottom:8px;
+      box-sizing: border-box;
+    }
+
+    /* left container holds id + name and truncates long name */
+    #searchResults .result-row .left {
+      display:flex;
+      flex-direction:column;
+      min-width: 0;       /* allow ellipsis to work inside flex */
+      overflow: hidden;
+      gap: 2px;
+    }
+    #searchResults .result-row .siteid {
+      font-weight:600;
+      font-size:13px;
+      color:#0f1724;
+      white-space:nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #searchResults .result-row .sitename {
+      font-size:12px;
+      color:#5b6470;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;   /* truncates with "..." when too long */
+    }
+
+    /* meta (distance / extra) pinned to right */
+    #searchResults .result-row .meta {
+      margin-left: auto;
+      white-space: nowrap;
+      font-size:12px;
+      color:#5b6470;
+    }
+
+    /* hover/pinned styling (no translate) */
+    #searchResults .result-row:not(.pinned):hover {
+      background: color-mix(in srgb, var(--accent) 8%, white 92%);
+      box-shadow: 0 10px 20px rgba(11,118,255,0.05);
+      border-color: rgba(11,118,255,0.08);
+    }
+    #searchResults .result-row.pinned {
+      background: color-mix(in srgb, var(--accent) 16%, white 84%);
+      border: 1px solid rgba(11,118,255,0.18);
+      box-shadow: 0 10px 26px rgba(11,118,255,0.12);
+    }
+
+    /* title / meta */
+    .result-row .title { font-weight:600; font-size:13px; color:#0f1724; }
+    .result-row .meta { font-size:12px; color:#5b6470; margin-left:auto; }
+
+    /* responsive placement: mobile / portrait bottom anchored */
+    /* @media (max-width:640px) {
+      #searchResults {
+        left: 12px;
+        right: 12px;
+        top: auto;
+        bottom: 12px;
+        width: calc(100% - 24px);
+        max-height: 46%;
+        padding: 10px;
+      }
+    } */
+
+    /* ---------- Stabilize hover effects (append to end of style) ---------- */
+    /* Ensure buttons keep a fixed border so hover doesn't change layout */
+    .control-panel button,
+    .control-panel input[type="button"],
+    .control-panel input[type="submit"],
+    .control-panel select,
+    .control-panel input[type="text"],
+    .control-panel input[type="range"] {
+      border: 1px solid transparent; /* fixed width prevents reflow on hover */
+      transition: box-shadow .18s ease, background-color .12s ease, filter .12s ease;
+      /* remove transform transitions to avoid movement */
+      will-change: box-shadow, filter;
+    }
+
+    /* elegant no-shift hover */
+    .control-panel button:hover,
+    .control-panel select:hover,
+    .control-panel input[type="text"]:hover {
+      filter: brightness(1.03); /* tiny brighten */
+      box-shadow: 0 8px 24px rgba(16,24,40,0.08), 0 0 0 4px rgba(11,118,255,0.06);
+      border-color: rgba(11,118,255,0.06);
+      transform: none !important;
+    }
+
+    /* stronger focus ring but no layout change */
+    .control-panel button:focus,
+    .control-panel select:focus,
+    .control-panel input[type="text"]:focus {
+      box-shadow: 0 12px 32px rgba(11,118,255,0.12), 0 0 0 6px rgba(11,118,255,0.08);
+      outline: none;
+      transform: none !important;
+    }
+
+    /* small icon buttons only change color; no movement */
+    .control-panel .panel-actions button {
+      background: transparent;
+      color: rgba(20,20,20,0.84);
+      border: 1px solid transparent;
+    }
+    .control-panel .panel-actions button:hover {
+      color: var(--accent);
+      box-shadow: none;
+      transform: none;
+    }
+
+    /* primary action buttons: no translate, stronger glow */
+    .control-panel button#searchBtn,
+    .control-panel button#gotoBtn,
+    .control-panel button#clearAllBtn {
+      border: 1px solid transparent;
+      transition: box-shadow .18s ease, filter .12s ease, background-color .12s ease;
+    }
+    .control-panel button#searchBtn:hover,
+    .control-panel button#gotoBtn:hover,
+    .control-panel button#clearAllBtn:hover {
+      filter: brightness(1.04);
+      box-shadow: 0 14px 38px rgba(11,118,255,0.20), 0 0 0 6px rgba(11,118,255,0.08);
+      transform: none !important;
+    }
+
+    /* ensure no child element applies movement */
+    .control-panel * { backface-visibility: hidden; -webkit-font-smoothing: antialiased; }
+
+    body,
+    #searchResults,
+    .bts-label,
+    #coordDisplay,
+    .popup-list,
+    .context-menu {
+      font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .bts-label {
+      font-weight: 600;   /* match semibold used in search result siteId */
+      font-size: 13px;    /* already 13px in your CSS — keep for parity */
+    }
+
+    .bts-label { line-height: 0.5; /* unitless → relative to font-size */ }
+    .bts-label b { display: block; line-height: 0.2; }  
+    .bts-label span { display: block; line-height: 0.5; } 
+
+    #searchResults .siteid { font-weight: 600; font-size: 13px; }
+    #searchResults .sitename { font-size: 12px; }
+
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="perfBadge"></div>
+  
+  <!-- NEW: panel toggle FAB + modern controlPanel -->
+  <button id="toggle-panel" aria-expanded="false" aria-controls="controlPanel">☰</button>
+
+  <aside id="controlPanel" class="control-panel collapsed" role="region" aria-label="Map controls">
+    <div class="panel-head">
+      <div class="panel-title">Map Controls</div>
+      <div class="panel-actions">
+        <!-- kept id for backwards compatibility -->
+        <button id="collapseBtn" title="Minimize" aria-label="Minimize">−</button>
+      </div>
+    </div>
+
+    <div class="panel-body">
+      <div class="row" style="width:100%">
+        <label style="flex:1">Sector style
+          <select id="themeSelect" style="margin-top:6px">
+            <option value="1" >1: blue red yellow</option>
+            <option value="2">2: random</option>
+            <option value="3">3: green</option>
+            <option value="4" selected>4: transparent</option>
+          </select>
+        </label>
+        <label style="width:120px">Map
+          <select id="mapTypeSelect" style="margin-top:6px">
+            <option value="m">street</option>
+            <option value="y">hybrid</option>
+            <option value="s" selected>satellite</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <label style="flex:1"><input id="measureToggle" type="checkbox" /> calc distance</label>
+        <label style="width:48%"><input id="toggleSectors" type="checkbox" /> show sectors</label>
+      </div>
+
+      <div class="row">
+        <label style="flex:1"><input id="toggleSiteId" type="checkbox" checked /> show siteid</label>
+        <label style="width:48%"><input id="toggleSiteName" type="checkbox" /> show sitename</label>
+      </div>
+
+      <div class="row">
+        <label style="flex:1"><input id="toggleAlwaysShow" type="checkbox" checked /> always show</label>
+        <button id="clearAllBtn" style="min-width:108px">Clear Sites</button>
+      </div>
+
+      <div class="row">
+        <input id="gotoInput" type="text" placeholder="lon,lat or lat,lon; multi pairs" />
+        <div style="display:flex;gap:6px">
+          <button id="gotoBtn">Add</button>
+          <button id="clearPointsBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <input id="searchInput" type="text" placeholder="Search siteid or name" />
+        <button id="searchBtn">Search</button>
+      </div>
+    </div>
+
+    <div class="panel-foot">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label style="font-size:13px">Zoom <input id="zoomSlider" type="range" min="7" max="20" step="1" value="16" /></label>
+        <label style="font-size:13px">Sector Range 
+          <!-- <input id="rangeSlider" type="range" min="10" max="2000" step="10" value="100" /> -->
+          <select id="rangeSlider" title="Select range">
+            <option value="10">10 m</option>
+            <option value="25">25 m</option>
+            <option value="50">50 m</option>
+            <option value="100" selected >100 m</option>
+            <option value="250">250 m</option>
+            <option value="500" >500 m</option>
+            <option value="1000">1 km</option>
+            <option value="2000">2 km</option>
+            <option value="4000">4 km</option>
+          </select>          
+          </label>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <label style="font-size:13px">Text <input id="textSizeSlider" type="range" min="8" max="24" step="1" value="13" /></label>        
+      </div>
+    </div>
+  </aside>
+
+
+  <div id="searchResults">
+    <ul></ul>
+    <div class="pagination"></div>
+  </div>
+  <div id="searchPopup" class="popup-list"></div>
+  <div id="contextMenu" class="context-menu"></div>
+  <div id="infoPopup" class="info-popup">
+    <div class="close-btn" id="infoClose">×</div>
+    Available on next release
+  </div>
+  <div id="bottomBar">
+    <div id="coordDisplay">Lat: -, Lng: -</div>
+  </div>
+
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <script src="app.js" charset="UTF-8"></script>
+  
+</body>
+</html>
